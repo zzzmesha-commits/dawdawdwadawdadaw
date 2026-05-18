@@ -37,7 +37,7 @@ async function startServer() {
 
   const ADMIN_CREDENTIALS = {
     username: process.env.ADMIN_USERNAME || 'rattpoor',
-    password: process.env.ADMIN_PASSWORD || '09094344916755'
+    password: process.env.ADMIN_PASSWORD || '123456'
   };
 
   // API - Auth - Verify Key
