@@ -1,0 +1,6 @@
+{
+  "name": "MM2.Shop - Murder Mystery 2 Marketplace",
+  "description": "Premium marketplace for Murder Mystery 2 skins, knives, and guns with instant auto-login.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
