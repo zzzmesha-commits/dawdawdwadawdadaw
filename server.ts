@@ -169,7 +169,7 @@ async function startServer() {
         try {
           console.log(`[Roblox Lookup] Attempting keyword search fallback...`);
           // Use a shorter timeout and more specific check
-          const searchRes = await fetchWithTimeout(`https://users.roproxy.com/v1/users/search?keyword=${encodeURIComponent(cleanUsername)}&limit=10`);
+          const searchRes = await fetchWithTimeout(`https://users.roblox.com/v1/users/search?keyword=${encodeURIComponent(cleanUsername)}&limit=10`);
           if (searchRes.ok) {
             const searchData = await searchRes.json() as any;
             if (searchData.data && searchData.data.length > 0) {
@@ -196,7 +196,7 @@ async function startServer() {
         if (!userId) {
           try {
             console.log(`[Roblox Lookup] Attempting direct username lookup...`);
-            const exactResponse = await fetchWithTimeout(`https://users.roproxy.com/v1/usernames/users`, {
+            const exactResponse = await fetchWithTimeout(`https://users.roblox.com/v1/usernames/users`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ usernames: [cleanUsername], excludeBannedUsers: false })
@@ -223,7 +223,7 @@ async function startServer() {
       if (!userId) {
         // Final broad fallback search
         try {
-           const globalRes = await fetchWithTimeout(`https://users.roproxy.com/v1/users/search?keyword=${encodeURIComponent(cleanUsername)}&limit=1`);
+           const globalRes = await fetchWithTimeout(`https://users.roblox.com/v1/users/search?keyword=${encodeURIComponent(cleanUsername)}&limit=1`);
            const globalData = await globalRes.json() as any;
            if (globalData.data?.[0]) {
              userId = globalData.data[0].id;
@@ -239,8 +239,8 @@ async function startServer() {
       // Step 2 & 3: Detailed Data Retrieval
       try {
         const [detailRes, thumbRes] = await Promise.allSettled([
-          fetchWithTimeout(`https://users.roproxy.com/v1/users/${userId}`),
-          fetchWithTimeout(`https://thumbnails.roproxy.com/v1/users/avatar-headshot?userIds=${userId}&size=150x150&format=Png&isCircular=false`)
+          fetchWithTimeout(`https://users.roblox.com/v1/users/${userId}`),
+          fetchWithTimeout(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=150x150&format=Png&isCircular=false`)
         ]);
 
         const detailData = detailRes.status === 'fulfilled' && detailRes.value.ok ? await detailRes.value.json() : null;
@@ -252,20 +252,52 @@ async function startServer() {
           id: userId,
           username: detailData?.name || confirmedName,
           displayName: detailData?.displayName || confirmedName,
-          avatarUrl: avatarUrl
+          avatarUrl: `/api/roblox/avatar-proxy?url=${encodeURIComponent(avatarUrl)}`
         });
       } catch (e) {
         console.warn('[Roblox Lookup] Final details fetch failed, returning base data.');
+        const fallbackUrl = 'https://tr.rbxcdn.com/38c6ed8c63602551cfecd7b864b61af3/150/150/AvatarHeadshot/Png';
         res.json({
           id: userId,
           username: confirmedName,
           displayName: confirmedName,
-          avatarUrl: 'https://tr.rbxcdn.com/38c6ed8c63602551cfecd7b864b61af3/150/150/AvatarHeadshot/Png'
+          avatarUrl: `/api/roblox/avatar-proxy?url=${encodeURIComponent(fallbackUrl)}`
         });
       }
     } catch (error) {
       console.error('Roblox API Fatal Error:', error);
       res.status(503).json({ error: 'Roblox services are currently slow. Please try again.' });
+    }
+  });
+
+  // Dedicated same-origin proxy to secure Roblox avatar delivery completely
+  app.get('/api/roblox/avatar-proxy', async (req, res) => {
+    try {
+      const { url } = req.query;
+      if (!url || typeof url !== 'string' || !url.startsWith('https://')) {
+        return res.status(400).send('Invalid image URL');
+      }
+
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+        }
+      });
+
+      if (!response.ok) {
+        return res.status(response.status || 500).send('Failed to fetch avatar');
+      }
+
+      const contentType = response.headers.get('content-type') || 'image/png';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      
+      const buffer = await response.arrayBuffer();
+      res.send(Buffer.from(buffer));
+    } catch (err) {
+      console.error('Avatar Proxy error:', err);
+      res.status(500).send('Error proxying avatar');
     }
   });
 
@@ -275,7 +307,7 @@ async function startServer() {
       const { keyword } = req.params;
       
       // Step 1: Search for users
-      const searchResponse = await fetch(`https://users.roproxy.com/v1/users/search?keyword=${keyword}&limit=5`);
+      const searchResponse = await fetch(`https://users.roblox.com/v1/users/search?keyword=${keyword}&limit=5`);
       const searchData = await searchResponse.json() as any;
 
       if (!searchData.data || searchData.data.length === 0) {
@@ -286,16 +318,17 @@ async function startServer() {
       const userIds = users.map((u: any) => u.id);
 
       // Step 2: Get thumbnails for all found users
-      const thumbResponse = await fetch(`https://thumbnails.roproxy.com/v1/users/avatar-headshot?userIds=${userIds.join(',')}&size=150x150&format=Png&isCircular=false`);
+      const thumbResponse = await fetch(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userIds.join(',')}&size=150x150&format=Png&isCircular=false`);
       const thumbData = await thumbResponse.json() as any;
       
       const results = users.map((u: any) => {
         const thumb = thumbData.data?.find((t: any) => t.targetId === u.id);
+        const imgUrl = thumb?.imageUrl || 'https://tr.rbxcdn.com/38c6ed8c63602551cfecd7b864b61af3/150/150/AvatarHeadshot/Png';
         return {
           id: u.id,
           username: u.name,
           displayName: u.displayName,
-          avatarUrl: thumb?.imageUrl || ''
+          avatarUrl: `/api/roblox/avatar-proxy?url=${encodeURIComponent(imgUrl)}`
         };
       });
 
